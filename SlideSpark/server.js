@@ -1,6 +1,6 @@
 const express = require("express");
 const multer = require("multer");
-const pdfParse = require("pdf-parse/lib/pdf-parse");
+const PDFParser = require("pdf2json"); //use this instead of the old one pdf-parse which is the legacy
 const cors = require("cors");
 const fs = require("fs");
 
@@ -10,34 +10,39 @@ const PORT = 3000;
 app.use(cors());
 app.use(express.static("public"));
 
-// Storage config
-const upload = multer({
-  dest: "uploads/",
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB limit
-});
+const upload = multer({ dest: "uploads/" });
 
-// Upload route
-app.post("/upload", upload.single("pdf"), async (req, res) => {
-  try {
-    const filePath = req.file.path;
-    const dataBuffer = fs.readFileSync(filePath);
+app.post("/upload", upload.single("pdf"), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+    }
 
-    const pdfData = await pdfParse(dataBuffer);
+    const pdfParser = new PDFParser(this, 1); // '1' means extract text only
 
-    console.log("Extracted Text:");
-    console.log(pdfData.text);
+    // If parsing fails
+    pdfParser.on("pdfParser_dataError", errData => {
+        console.error(errData.parserError);
+        res.status(500).json({ error: "Parsing failed" });
+    });
 
-    res.json({ 
-        message: "PDF processed successfully!",
-        text: pdfData.text
-     });
+    // If parsing succeeds
+    pdfParser.on("pdfParser_dataReady", pdfData => {
+        const text = pdfParser.getRawTextContent();
+        
+        console.log("PDF parsed successfully!");
+        res.json({
+            message: "Success!",
+            text: text
+        });
 
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Something went wrong" });
-  }
+        // Clean up the file
+        fs.unlinkSync(req.file.path);
+    });
+
+    // Start the parsing process
+    pdfParser.loadPDF(req.file.path);
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+    console.log(`Server running at http://localhost:${PORT}`);
 });
